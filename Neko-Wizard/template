@@ -2,7 +2,7 @@
 pkgname=Neko-Wizard
 version=9.0.13
 revision=5
-archs=x86_84-musl
+archs="x86_84-musl"
 build_style=meson
 hostmakedepends="pkg-config meson ninja cmake"
 makedepends="gtk4-devel"
