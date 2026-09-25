@@ -48,6 +48,10 @@ jobs:
           cd /tmp/void-packages/hostdir/binpkgs
           # Sincronizamos el contenido de musl/
           sshpass -e rsync -avz -e "ssh -o StrictHostKeyChecking=no" ${SFTP_USER}@frs.sourceforge.net:/home/frs/project/neko-void/repo/musl/ .
+          rm -f *repodata
+          rm -f *.sig2
+          rm -f *.sig
+          
 
       - name: Build and Sign packages in Void Musl Container
         env:
