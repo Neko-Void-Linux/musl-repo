@@ -1,4 +1,4 @@
-name: MUSL Repo Updater/BUILD
+name: Musl Repository Build
 
 on:
   workflow_dispatch:
@@ -13,152 +13,146 @@ on:
         required: false
         type: string
         default: ''
-      migrate_sf:
-        description: 'Descargar estado base desde SourceForge (si es false, usa GitHub Releases)'
-        required: true
-        type: boolean
-        default: true
 
-permissions:
-  contents: write
-  
 jobs:
   build:
     runs-on: ubuntu-22.04
     timeout-minutes: 360
+    # Quitamos el 'container:' global para que Actions use el entorno de Ubuntu nativo
+    # y usamos Docker internamente para el entorno musl.
 
     steps:
-      - name: Install host dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y wget curl jq rsync sshpass bubblewrap xz-utils git nodejs tar
-
-      - name: Setup Void musl chroot
-        run: |
-          sudo mkdir -p /tmp/void-musl-chroot
-          sudo wget -qO- https://repo-default.voidlinux.org/live/current/void-x86_64-musl-ROOTFS-20250202.tar.xz | sudo tar -xJp -C /tmp/void-musl-chroot
-          sudo mount --bind /dev /tmp/void-musl-chroot/dev
-          sudo mount --bind /dev/pts /tmp/void-musl-chroot/dev/pts
-          sudo mount --bind /proc /tmp/void-musl-chroot/proc
-          sudo mount --bind /sys /tmp/void-musl-chroot/sys
-          sudo cp /etc/resolv.conf /tmp/void-musl-chroot/etc/resolv.conf
-          sudo chroot /tmp/void-musl-chroot xbps-install -Syu xbps
-          sudo chroot /tmp/void-musl-chroot xbps-install -Syu
-          sudo chroot /tmp/void-musl-chroot xbps-install -y base-devel git xtools sudo rsync openssh sshpass python3 python3-pip curl jq shadow ca-certificates
-
       - name: Checkout source code
         uses: actions/checkout@v4
 
-      - name: Prepare void-packages in chroot
+      - name: Install dependencies (Rsync, SSHpass & HF CLI)
         run: |
-          sudo chroot /tmp/void-musl-chroot /bin/bash -c "
-            git clone --depth 1 https://github.com/void-linux/void-packages.git /tmp/void-packages
-            cd /tmp/void-packages
-            git clone https://github.com/Neko-Void-Linux/musl-repo.git custompkgs
-            cp -rf custompkgs/* srcpkgs/
-            echo '#nnothing' >> common/build-style/none.sh
-            echo 'libscenefx-0.5.so scenefx-latest-0.5_1' >> common/shlibs
-            echo 'libQt6Pas.so.6 libqt6pas-bin-6.2.10_1' >> common/shlibs
-            
-            # Configure xbps-src for musl architecture
-            echo 'XBPS_ARCH=x86_64-musl' >> etc/conf.sh
-            echo 'XBPS_REPOSITORY="https://repo-default.voidlinux.org/current/musl"' >> etc/conf.sh
-            
-            groupadd -f xbuilder
-            useradd -m -s /bin/bash -G xbuilder builder
-            echo 'builder ALL=(ALL) NOPASSWD: ALL' > /etc/sudoers.d/builder
-            chown -R builder:builder /tmp/void-packages
-          "
+          sudo apt-get update
+          sudo apt-get install -y sshpass rsync python3-pip
+          python3 -m pip install -U "huggingface_hub[cli]"
 
-      - name: Download existing repo state
+      - name: Clone void-packages and templates
+        run: |
+          git clone --depth 1 https://github.com/Neko-Void-Linux/musl-repo.git /tmp/srcpkgs
+          git clone --depth 1 https://github.com/void-linux/void-packages.git /tmp/void-packages
+          # Copiamos el contenido dentro de la carpeta srcpkgs existente
+          cp -rf /tmp/srcpkgs/* /tmp/void-packages/srcpkgs/
+          echo "#nnothing" >> /tmp/void-packages/common/build-style/none.sh
+
+      - name: Download existing repo from SourceForge
         env:
           SFTP_USER: ${{ secrets.SFTP_USERNAME }}
           SSHPASS: ${{ secrets.SFTP_PASSWORD }}
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          sudo chroot /tmp/void-musl-chroot /bin/bash -c "
-            mkdir -p /tmp/void-packages/hostdir/binpkgs
-            cd /tmp/void-packages/hostdir/binpkgs
-            if [ '${{ inputs.migrate_sf }}' = 'true' ]; then
-              sshpass -e rsync -avz --delete -e 'ssh -o StrictHostKeyChecking=no' \${SFTP_USER}@frs.sourceforge.net:/home/frs/project/neko-void/repo/musl . || echo 'Advertencia: Fallo al descargar desde SF'
-            else
-              gh release download stable --dir . --pattern '*' || echo 'Advertencia: El release stable no existe o está vacío'
-            fi
-            chown -R builder:builder /tmp/void-packages
-          "
+          mkdir -p /tmp/void-packages/hostdir/binpkgs
+          cd /tmp/void-packages/hostdir/binpkgs
+          # Sincronizamos el contenido de musl/
+          sshpass -e rsync -avz -e "ssh -o StrictHostKeyChecking=no" ${SFTP_USER}@frs.sourceforge.net:/home/frs/project/neko-void/repo/musl/ .
 
-      - name: Build package
-        if: ${{ !inputs.sync_only && inputs.packages != '' }}
-        run: |
-          sudo chroot /tmp/void-musl-chroot /bin/bash -c "
-            rm -rf /tmp/void-packages/masterdir /tmp/void-packages/masterdir-*
-            su - builder -c 'cd /tmp/void-packages && XBPS_ARCH=x86_64-musl XBPS_ALLOW_RESTRICTED=yes ./xbps-src -N binary-bootstrap'
-            IFS=',' read -ra PKGS <<< '${{ inputs.packages }}'
-            for pkg in \"\${PKGS[@]}\"; do
-              pkg=\$(echo \"\$pkg\" | xargs)
-              if [ -n \"\$pkg\" ]; then
-                echo \"Compilando paquete: \$pkg\"
-                su - builder -c \"cd /tmp/void-packages && XBPS_ARCH=x86_64-musl XBPS_ALLOW_RESTRICTED=yes ./xbps-src -N pkg \$pkg\"
-              fi
-            done
-          "
-
-      - name: Sign packages and index
+      - name: Build and Sign packages in Void Musl Container
         env:
-          XBPS_PRIVATE_KEY: ${{ secrets.XBPS_PRIVATE_KEY }}
+          XBPS_PRIVKEY: ${{ secrets.XBPS_PRIVATE_KEY }}
         run: |
-          echo "\$XBPS_PRIVATE_KEY" | sudo tee /tmp/void-musl-chroot/tmp/privkey.pem > /dev/null
-          sudo chroot /tmp/void-musl-chroot /bin/bash -c "
-            cd /tmp/void-packages/hostdir/binpkgs
-            rm -f x86_64-repodata *.sig2 *.sig
-            if ls *.xbps 1> /dev/null 2>&1; then
-              xbps-rindex --sign-pkg --privkey /tmp/privkey.pem *.xbps
-              xbps-rindex -a *.xbps
-            fi
-            xbps-rindex --sign --signedby 'javierc' --privkey /tmp/privkey.pem .
-            rm /tmp/privkey.pem
-          "
+          echo "$XBPS_PRIVKEY" > /tmp/void-packages/privkey.pem
+          
+          # Creamos un script que se ejecutará dentro del contenedor de Docker
+          cat << 'EOF' > /tmp/void-packages/build.sh
+          # 1. Instalar dependencias esenciales y bash
+          xbps-install -Syu xbps && xbps-install -Syu
+          xbps-install -y base-devel xtools tar gcc make shadow util-linux bash
 
+          useradd -m builder
+          chown -R builder:builder /void-packages
+
+          # 2. Usar bash para procesar los arrays y la lógica de compilación
+          bash -c '
+            SYNC_ONLY="$1"
+            PACKAGES="$2"
+
+            if [ "$SYNC_ONLY" != "true" ] && [ -n "$PACKAGES" ]; then
+              chroot --userspec=builder:builder / bash -c "cd /void-packages && ./xbps-src binary-bootstrap"
+              
+              # Procesar la lista de paquetes separada por comas
+              IFS="," read -ra PKGS <<< "$PACKAGES"
+              for pkg in "${PKGS[@]}"; do
+                # Eliminar espacios en blanco
+                pkg=$(echo "$pkg" | xargs)
+                if [ -n "$pkg" ]; then
+                  echo "Compilando paquete: $pkg"
+                  chroot --userspec=builder:builder / bash -c "cd /void-packages && ./xbps-src pkg $pkg"
+                fi
+              done
+            else
+              echo "Saltando compilación o no se especificaron paquetes."
+            fi
+
+            # 3. Firmar paquetes
+            cd /void-packages/hostdir/binpkgs
+            if ls *.xbps 1> /dev/null 2>&1; then
+              xbps-rindex --sign-pkg --privkey /void-packages/privkey.pem *.xbps
+              xbps-rindex -a *.xbps
+              xbps-rindex --sign --signedby "javierc" --privkey /void-packages/privkey.pem .
+            else
+              echo "No se encontraron paquetes .xbps para firmar."
+            fi
+
+            chmod -R 777 /void-packages/hostdir/binpkgs
+          ' _ "${1}" "${2}"
+          EOF
+
+          # Ejecutamos el contenedor mapeando el directorio e invocando el script creado
+          docker run --rm --privileged \
+            -v /tmp/void-packages:/void-packages \
+            ghcr.io/void-linux/void-musl:latest \
+            /bin/sh /void-packages/build.sh "${{ inputs.sync_only }}" "${{ inputs.packages }}"
+          
+          # Limpieza
+          sudo rm -f /tmp/void-packages/privkey.pem
+          
       - name: Deploy to GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
         run: |
-          sudo chroot /tmp/void-musl-chroot /bin/bash -c "
-            git config --global --add safe.directory '*'
-            cd /tmp/void-packages/hostdir/binpkgs
-            shopt -s nullglob
-            ARCHIVOS=()
-            for f in *.xbps *.sig *.sig2 *-repodata*; do
-              if [ -f \"\$f\" ]; then
-                ARCHIVOS+=(\"\$f\")
-              fi
-            done
-            if [ \${#ARCHIVOS[@]} -eq 0 ]; then
-              echo 'No hay archivos para subir al release.'
-            else
-              REPO='${{ github.repository }}'
-              if gh release view packages --repo \"\$REPO\" >/dev/null 2>&1; then
-                gh release upload packages \"\${ARCHIVOS[@]}\" --clobber --repo \"\$REPO\"
-              else
-                gh release create packages \"\${ARCHIVOS[@]}\" --title 'Stable Release' --notes 'Repositorio oficial de paquetes musl para Neko Void' --repo \"\$REPO\"
-              fi
+          git config --global --add safe.directory '*'
+          cd /tmp/void-packages/hostdir/binpkgs
+          
+          shopt -s nullglob
+          ARCHIVOS=()
+          for f in *.xbps *.sig *.sig2 *-repodata*; do
+            if [ -f "$f" ]; then
+              ARCHIVOS+=("$f")
             fi
-          "
-
+          done
+          
+          if [ ${#ARCHIVOS[@]} -eq 0 ]; then
+            echo "No hay archivos para subir al release."
+          else
+            REPO="${{ github.repository }}"
+            if gh release view packages --repo "$REPO" >/dev/null 2>&1; then
+              echo "El release existe. Subiendo y sobreescribiendo archivos en GitHub..."
+              gh release upload packages "${ARCHIVOS[@]}" --clobber --repo "$REPO"
+            else
+              echo "Creando nuevo release packages en GitHub..."
+              gh release create packages "${ARCHIVOS[@]}" --title "Stable Release" --notes "Repositorio oficial de paquetes para Neko Void" --repo "$REPO"
+            fi
+          fi
+          
       - name: Deploy to SourceForge
         env:
           SFTP_USER: ${{ secrets.SFTP_USERNAME }}
           SSHPASS: ${{ secrets.SFTP_PASSWORD }}
         run: |
-          sudo chroot /tmp/void-musl-chroot /bin/bash -c "
-            cd /tmp/void-packages/hostdir/binpkgs
-            sshpass -e rsync -avz --delete -e 'ssh -o StrictHostKeyChecking=no' . \${SFTP_USER}@frs.sourceforge.net:/home/frs/project/neko-void/repo/musl/
-          "
+          cd /tmp/void-packages/hostdir/binpkgs
+          # Aseguramos enviar a la ruta /repo/musl/
+          sshpass -e rsync -avz --delete -e "ssh -o StrictHostKeyChecking=no" ./ ${SFTP_USER}@frs.sourceforge.net:/home/frs/project/neko-void/repo/musl/
 
-      - name: Cleanup chroot mounts
-        if: always()
+      - name: Compress and upload to Hugging Face 
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
-          sudo umount -l /tmp/void-musl-chroot/dev/pts || true
-          sudo umount -l /tmp/void-musl-chroot/dev || true
-          sudo umount -l /tmp/void-musl-chroot/proc || true
-          sudo umount -l /tmp/void-musl-chroot/sys || true
+          cd /tmp/void-packages/hostdir/binpkgs
+          VERSION=$(date +"%Y%m%d")
+          # Se cambió el nombre del archivo final para identificar que es de musl
+          tar -czvf /tmp/neko-packages-musl.tar.gz .
+          hf upload arepaconcafe/repo /tmp/neko-packages-musl.tar.gz musl-test-$VERSION.tar.gz --repo-type dataset --token $HF_TOKEN
