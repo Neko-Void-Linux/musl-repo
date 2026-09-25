@@ -37,7 +37,7 @@ jobs:
           xbps-install -Suyd --repository=https://repo-de.voidlinux.org/current/
           xbps-install -y --repository=https://repo-de.voidlinux.org/current/ wget nodejs ca-certificates ntp git base-devel xtools sudo rsync openssh sshpass python3 python3-pip tar curl jq github-cli
           
-          python3 -m pip install -U "huggingface_hub[cli]" --break-system-packages
+          python3 -m pip install -U "huggingface_hub[cli]" --break-system-packages --root-user-action
           
           groupadd -f xbuilder
           useradd -m -s /bin/bash -G xbuilder builder
