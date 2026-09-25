@@ -36,7 +36,7 @@ jobs:
       - name: Setup Void musl chroot
         run: |
           sudo mkdir -p /tmp/void-musl-chroot
-          sudo wget -qO- https://repo-default.voidlinux.org/live/current/void-x86_64-musl-ROOTFS.tar.xz | sudo tar -xJp -C /tmp/void-musl-chroot
+          sudo wget -qO- https://repo-default.voidlinux.org/live/current/void-x86_64-musl-ROOTFS-20250202.tar.xz | sudo tar -xJp -C /tmp/void-musl-chroot
           sudo chroot /tmp/void-musl-chroot xbps-install -Syu
           sudo chroot /tmp/void-musl-chroot xbps-install -y base-devel git xtools sudo rsync openssh sshpass python3 python3-pip tar curl jq tar shadow
 
