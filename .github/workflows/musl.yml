@@ -37,6 +37,7 @@ jobs:
         run: |
           sudo mkdir -p /tmp/void-musl-chroot
           sudo wget -qO- https://repo-default.voidlinux.org/live/current/void-x86_64-musl-ROOTFS-20250202.tar.xz | sudo tar -xJp -C /tmp/void-musl-chroot
+          sudo cp /etc/resolv.conf /tmp/void-musl-chroot/etc/resolv.conf
           sudo chroot /tmp/void-musl-chroot xbps-install -S --repository=https://repo-de.voidlinux.org/current/musl
           sudo chroot /tmp/void-musl-chroot xbps-install -yu --repository=https://repo-de.voidlinux.org/current/musl xbps
           sudo chroot /tmp/void-musl-chroot xbps-install -Syu --repository=https://repo-de.voidlinux.org/current/musl
