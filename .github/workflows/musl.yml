@@ -146,13 +146,3 @@ jobs:
           cd /tmp/void-packages/hostdir/binpkgs
           # Aseguramos enviar a la ruta /repo/musl/
           sshpass -e rsync -avz --delete -e "ssh -o StrictHostKeyChecking=no" ./ ${SFTP_USER}@frs.sourceforge.net:/home/frs/project/neko-void/repo/musl/
-
-      - name: Compress and upload to Hugging Face 
-        env:
-          HF_TOKEN: ${{ secrets.HF_TOKEN }}
-        run: |
-          cd /tmp/void-packages/hostdir/binpkgs
-          VERSION=$(date +"%Y%m%d")
-          # Se cambió el nombre del archivo final para identificar que es de musl
-          tar -czvf /tmp/neko-packages-musl.tar.gz .
-          hf upload arepaconcafe/repo /tmp/neko-packages-musl.tar.gz musl-test-$VERSION.tar.gz --repo-type dataset --token $HF_TOKEN
