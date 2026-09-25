@@ -35,8 +35,7 @@ jobs:
         run: |
           xbps-install -Syu --repository=https://repo-de.voidlinux.org/current/ xbps
           xbps-install -Suyd --repository=https://repo-de.voidlinux.org/current/
-          xbps-install -y --repository=https://repo-de.voidlinux.org/current/ wget nodejs ca-certificates ntp git base-devel xtools sudo rsync openssh sshpass python3 python3-pip tar curl jq github-cli
-          
+          xbps-install -y --repository=https://repo-de.voidlinux.org/current/ wget nodejs ca-certificates ntp git base-devel xtools sudo rsync openssh sshpass python3 python3-pip tar curl jq github-cli shadow
           
           groupadd -f xbuilder
           useradd -m -s /bin/bash -G xbuilder builder
