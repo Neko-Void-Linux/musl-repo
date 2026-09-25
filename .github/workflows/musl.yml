@@ -59,6 +59,11 @@ jobs:
             echo '#nnothing' >> common/build-style/none.sh
             echo 'libscenefx-0.5.so scenefx-latest-0.5_1' >> common/shlibs
             echo 'libQt6Pas.so.6 libqt6pas-bin-6.2.10_1' >> common/shlibs
+            
+            # Configure xbps-src for musl architecture
+            echo 'XBPS_ARCH=x86_64-musl' >> etc/conf.sh
+            echo 'XBPS_REPOSITORY="https://repo-default.voidlinux.org/current/musl"' >> etc/conf.sh
+            
             groupadd -f xbuilder
             useradd -m -s /bin/bash -G xbuilder builder
             echo 'builder ALL=(ALL) NOPASSWD: ALL' > /etc/sudoers.d/builder
@@ -87,13 +92,13 @@ jobs:
         run: |
           sudo chroot /tmp/void-musl-chroot /bin/bash -c "
             rm -rf /tmp/void-packages/masterdir /tmp/void-packages/masterdir-*
-            su - builder -c 'cd /tmp/void-packages && env XBPS_ARCH=x86_64-musl XBPS_ALLOW_RESTRICTED=yes ./xbps-src -N binary-bootstrap'
+            su - builder -c 'cd /tmp/void-packages && XBPS_ARCH=x86_64-musl XBPS_ALLOW_RESTRICTED=yes ./xbps-src -N binary-bootstrap'
             IFS=',' read -ra PKGS <<< '${{ inputs.packages }}'
             for pkg in \"\${PKGS[@]}\"; do
               pkg=\$(echo \"\$pkg\" | xargs)
               if [ -n \"\$pkg\" ]; then
                 echo \"Compilando paquete: \$pkg\"
-                su - builder -c \"cd /tmp/void-packages && env XBPS_ARCH=x86_64-musl XBPS_ALLOW_RESTRICTED=yes ./xbps-src -N pkg \$pkg\"
+                su - builder -c \"cd /tmp/void-packages && XBPS_ARCH=x86_64-musl XBPS_ALLOW_RESTRICTED=yes ./xbps-src -N pkg \$pkg\"
               fi
             done
           "
