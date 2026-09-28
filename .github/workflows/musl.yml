@@ -37,7 +37,9 @@ jobs:
           git clone --depth 1 https://github.com/void-linux/void-packages.git /tmp/void-packages
           # Copiamos el contenido dentro de la carpeta srcpkgs existente
           cp -rf /tmp/srcpkgs/* /tmp/void-packages/srcpkgs/
-          echo "#nnothing" >> /tmp/void-packages/common/build-style/none.sh
+          echo "#nnothing" >> common/build-style/none.sh
+          echo "libscenefx-0.5.so scenefx-latest-0.5_1" >> common/shlibs
+          echo "libQt6Pas.so.6 libqt6pas-bin-6.2.10_1" >> common/shlibs
 
       - name: Download existing repo from SourceForge
         env:
