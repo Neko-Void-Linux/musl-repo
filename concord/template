@@ -1,6 +1,6 @@
 # Template file for "concord"
 pkgname=concord
-version=2.6.0
+version=2.6.1
 revision=1
 build_style=cargo
 hostmakedepends="pkg-config clang cmake nasm rust cargo"
@@ -12,7 +12,7 @@ license="GPL-3.0-only"
 homepage="https://github.com/chojs23/concord"
 changelog="https://github.com/chojs23/concord/releases"
 distfiles="https://github.com/chojs23/concord/archive/refs/tags/v${version}.tar.gz"
-checksum=ea07bb13db7de8f2b810d91a3ca1ad75551063c98305514a675bcfb4160ec311
+checksum=0a4419088862a45b255c5b421a3bca6f7373922b19ab54c14be3a0a8ff6e671c
 
 export RUSTFLAGS="${RUSTFLAGS} -C target-feature=+crt-static"
 
